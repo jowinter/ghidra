@@ -9,6 +9,7 @@
 @define VERSION_7 ""
 @define VERSION_7M ""
 @define VERSION_8 ""
+@define VERSION_8M ""
 @define SIMD ""
 @define VFPv3 ""
 @define VFPv4 ""

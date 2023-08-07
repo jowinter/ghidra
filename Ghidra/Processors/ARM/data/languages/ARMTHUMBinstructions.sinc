@@ -2704,7 +2704,7 @@ macro writeAPSR(r) {
   NG = ((tmp >> 4) & 0x1) != 0;
 }
 
-@if defined(VERSION_7M)
+@if defined(VERSION_7M) || defined(VERSION_8M)
 
 define pcodeop getMainStackPointer;
 define pcodeop getProcessStackPointer;
@@ -2814,6 +2814,9 @@ control: "control" 			is epsilon {}
   Rd0811 = zext((altStackMode << 1) | notPrivileged);
 }
 
+@endif
+
+@if defined(VERSION_8M)
 define pcodeop setMainStackPointerLimit;
 
 msplim: "msplim" 		    is epsilon {}
@@ -2852,6 +2855,234 @@ define pcodeop getProcessStackPointerLimit;
 
 @endif
 
+#
+# ARMv8-M TrustZone
+#
+@if defined(VERSION_8M)
+define pcodeop enableIRQinterruptsNS;
+define pcodeop enableFIQinterruptsNS;
+
+define pcodeop getMainStackPointerNS;
+define pcodeop getMainStackPointerLimitNS;
+define pcodeop getProcessStackPointerNS;
+define pcodeop getProcessStackPointerLimitNS;
+define pcodeop getBasePriorityNS;
+
+define pcodeop isIRQinterruptsEnabledNS;
+define pcodeop isFIQinterruptsEnabledNS;
+define pcodeop isUsingMainStackNS;
+define pcodeop isSecure;
+define pcodeop isThreadModeNS;
+define pcodeop isThreadModePrivilegedNS;
+
+define pcodeop setMainStackPointerNS;
+define pcodeop setMainStackPointerLimitNS;
+define pcodeop setProcessStackPointerNS;
+define pcodeop setProcessStackPointerLimitNS;
+define pcodeop setStackModeNS;
+define pcodeop setThreadModePrivilegedNS;
+
+msp_ns:       "msp_ns"       is epsilon {}
+msplim_ns:    "msplim_ns"    is epsilon {}
+psp_ns:       "psp_ns"       is epsilon {}
+psplim_ns:    "psplim_ns"    is epsilon {}
+control_ns:   "control_ns"   is epsilon {}
+primask_ns:   "primask_ns"   is epsilon {}
+basepri_ns:   "basepri_ns"   is epsilon {}
+faultmask_ns: "faultmask_ns" is epsilon {}
+sp_ns:        "sp_ns"        is epsilon {}
+
+#
+# MRS variants (alternate domain)
+#
+:mrs^ItCond Rd0811,msp_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=136 & msp_ns
+{
+  build ItCond;
+	Rd0811 = 0;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  Rd0811 = getMainStackPointerNS();
+}
+
+:mrs^ItCond Rd0811,msplim_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=138 & msplim_ns
+{
+  build ItCond;
+	Rd0811 = 0;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  Rd0811 = getMainStackPointerLimitNS();
+}
+
+:mrs^ItCond Rd0811,psp_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=137 & psp_ns
+{
+  build ItCond;
+	Rd0811 = 0;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  Rd0811 = getProcessStackPointerNS();
+}
+
+:mrs^ItCond Rd0811,psplim_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=139 & psplim_ns
+{
+  build ItCond;
+	Rd0811 = 0;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  Rd0811 = getProcessStackPointerLimitNS();
+}
+
+:mrs^ItCond Rd0811,sp_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=152 & sp_ns
+{
+  build ItCond;
+	Rd0811 = 0;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+
+	t:1 = isThreadMode();
+	p:1 = isUsingMainStackNS();
+	if (!t || p) goto <useMainStack>;
+
+	# PE is in thread mode and we have CONTROL_NS.SP_SEL=1
+	Rd0811 = getProcessStackPointerNS();
+	goto inst_next;
+
+	# PE is in handler mode -or- shared stack (CONTROL_NS.SP_SEL=0)
+<useMainStack>
+	Rd0811 = getMainStackPointerNS();
+	goto inst_next;
+}
+
+:mrs^ItCond Rd0811,primask_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=144 & primask_ns
+{
+  build ItCond;
+  b:1 = isCurrentModePrivileged();
+  if (!b) goto inst_next;
+  Rd0811 = isIRQinterruptsEnabledNS(); # should reflect primask register/bit (alternate domain)
+}
+
+:mrs^ItCond Rd0811,basepri_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=145 & basepri_ns
+{
+  build ItCond;
+  Rd0811 = 0;
+  b:1 = isCurrentModePrivileged();
+  if (!b) goto inst_next;
+  Rd0811 = getBasePriorityNS();
+}
+
+:mrs^ItCond Rd0811,faultmask_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=147 & faultmask_ns
+{
+  build ItCond;
+  Rd0811 = 0;
+  b:1 = isCurrentModePrivileged();
+  if (!b) goto inst_next;
+  Rd0811 = isFIQinterruptsEnabledNS(); # should reflect faultmask register/bit
+}
+
+:mrs^ItCond Rd0811,control_ns 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=148 & control_ns
+{
+  build ItCond;
+  notPrivileged:1 = isThreadModePrivilegedNS() != 1:1;
+  altStackMode:1 = isUsingMainStackNS() != 1:1;
+  Rd0811 = zext((altStackMode << 1) | notPrivileged);
+}
+
+#
+# MSR variants (alternate domain)
+#
+:msr^ItCond msp_ns,Rn0003			is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=136 & msp_ns
+{
+	build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+	b:1 = isCurrentModePrivileged();
+	if (!b) goto inst_next;
+	setMainStackPointerNS(Rn0003);
+}
+
+:msr^ItCond msplim_ns,Rn0003 		is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=138 & msplim_ns
+{
+  build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  setMainStackPointerLimitNS(Rn0003);
+}
+
+:msr^ItCond psp_ns,Rn0003			is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=137 & psp_ns
+{
+	build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+	b:1 = isCurrentModePrivileged();
+	if (!b) goto inst_next;
+	setProcessStackPointerNS(Rn0003);
+}
+
+:msr^ItCond psplim_ns,Rn0003 		is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=139 & psplim_ns
+{
+  build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  setProcessStackPointerLimitNS(Rn0003);
+}
+
+:msr^ItCond sp_ns,Rn0003			is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=152 & sp_ns
+{
+  build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+
+	t:1 = isThreadMode();
+	p:1 = isUsingMainStackNS();
+	if (!t || p) goto <useMainStack>;
+
+	# PE is in thread mode and we have CONTROL_NS.SP_SEL=1
+	setProcessStackPointerNS(Rn0003);
+	goto inst_next;
+
+	# PE is in handler mode -or- shared stack (CONTROL_NS.SP_SEL=0)
+<useMainStack>
+	setMainStackPointerNS(Rn0003);
+	goto inst_next;
+}
+
+:msr^ItCond primask_ns,Rn0003 		is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=144 & primask_ns
+{
+  build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  b:1 = isCurrentModePrivileged();
+  if (!b) goto inst_next;
+  enableIRQinterruptsNS((Rn0003 & 1) == 1); # should set/clear primask register/bit
+}
+
+:msr^ItCond faultmask_ns,Rn0003 		is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=147 & faultmask_ns
+{
+  build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  b:1 = isCurrentModePrivileged();
+  if (!b) goto inst_next;
+  enableFIQinterruptsNS((Rn0003 & 1) == 1);
+}
+
+:msr^ItCond control_ns,Rn0003 		is TMode=1 & ItCond & op4=0xf38 & Rn0003; op12=0x8 & th_psrmask=8 & sysm=148 & control_ns
+{
+  build ItCond;
+	s:1 = isSecure();
+	if (!s) goto inst_next;
+  b:1 = isCurrentModePrivileged();
+  if (!b) goto inst_next;
+  privileged:1 = (Rn0003 & 1) == 0;
+  setThreadModePrivilegedNS(privileged);
+# TODO: not sure about the following semantics
+  b = isThreadModeNS();
+  if (!b) goto inst_next;
+  stackMode:1 = isUsingMainStackNS() == 1:1;
+  setStackModeNS(stackMode);
+# TODO: should we set sp ?
+}
+@endif
+
 :mrs^ItCond Rd0811,cpsr 		is TMode=1 & ItCond & op0=0xf3ef; op12=0x8 & Rd0811 & sysm=0 & cpsr
 {
   build ItCond;
@@ -2867,7 +3098,7 @@ define pcodeop getProcessStackPointerLimit;
 }
 
 
-@if defined(VERSION_7M)
+@if defined(VERSION_7M) || defined(VERSION_8M)
 
 msripsr: "i"	is thc0000=1 { }
 msripsr: 		is thc0000=0 { }
